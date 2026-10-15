@@ -1512,8 +1512,12 @@ def _serveur_sdk2():
     decorateurs `list_tools()` / `call_tool()` au profit de rappels passes
     au constructeur. Les handlers restent les memes : seule l'enveloppe change.
     """
+    import inspect
+
     from mcp import types as t
     from mcp.server.lowlevel import Server
+
+    from token_savior.server_handlers import discipline
 
     async def on_list_tools(ctx, params):
         return t.ListToolsResult(tools=await list_tools())
@@ -1538,6 +1542,19 @@ def _serveur_sdk2():
                 uri=params.uri, mimeType="text/markdown", text=texte)])
 
         rappels.update(on_list_resources=on_list_resources, on_read_resource=on_read_resource)
+
+    async def on_list_prompts(ctx, params):
+        return t.ListPromptsResult(prompts=discipline.list_prompts())
+
+    async def on_get_prompt(ctx, params):
+        return discipline.get_prompt(params.name, dict(params.arguments or {}))
+
+    # Instructions et prompts : on ne passe que ce que ce SDK accepte, pour ne
+    # jamais casser le demarrage sur une version qui ne les connait pas.
+    accepte = inspect.signature(Server.__init__).parameters
+    extras: dict[str, Any] = {"on_list_prompts": on_list_prompts, "on_get_prompt": on_get_prompt,
+                              "instructions": discipline.instructions()}
+    rappels.update({k: v for k, v in extras.items() if k in accepte and v is not None})
     return Server("token-savior-recall", **rappels)
 async def main():
     # Aucun projet configure ? On en cherche, plutot que de demarrer aveugle.
@@ -1576,6 +1593,15 @@ async def main():
         server = s.get_server()
         server.list_tools()(list_tools)
         server.call_tool()(call_tool)
+        from token_savior.server_handlers import discipline
+
+        @server.list_prompts()
+        async def _ts_list_prompts():
+            return discipline.list_prompts()
+
+        @server.get_prompt()
+        async def _ts_get_prompt(name, arguments):
+            return discipline.get_prompt(name, arguments)
 
     # Observations as ts://obs/{id} resources (opt-out: TS_RESOURCES_DISABLED=1).
     if _sdk_mcp_majeur() < 2 and os.environ.get("TS_RESOURCES_DISABLED", "").lower() not in ("1", "true", "yes"):

@@ -493,6 +493,51 @@ def _q_get_function_source(qfns, args: dict[str, Any]) -> str:
     return result
 
 
+_SIBLINGS_MAX = 12
+_COMMENT_PREFIXES = ("#", "//", "/*", "*", "--", ";")
+
+
+def _ligne_de(entry: dict) -> int | None:
+    """Ligne de début d'une entrée get_functions / get_classes (« line » ou « lines »)."""
+    line = entry.get("line")
+    if line is None and isinstance(entry.get("lines"), (list, tuple)) and entry["lines"]:
+        line = entry["lines"][0]
+    return line if isinstance(line, int) else None
+
+
+def _intention_au_dessus(qfns, location) -> str | None:
+    """Commentaire collé au-dessus de la définition : l'intention que la source seule ne dit pas.
+
+    Repris de graphify, qui fait des « # WHY: » des nœuds à part entière. Ici on n'en
+    garde que le bloc contigu juste au-dessus du symbole, 8 lignes au plus.
+    """
+    if not isinstance(location, dict) or "get_lines" not in qfns:
+        return None
+    line, file = location.get("line"), location.get("file")
+    if not isinstance(line, int) or line <= 1 or not file:
+        return None
+    try:
+        texte = qfns["get_lines"](file, max(1, line - 8), line - 1)
+    except Exception:
+        return None
+    if not isinstance(texte, str):
+        return None
+    bloc: list[str] = []
+    for brute in reversed(texte.splitlines()):
+        ligne = brute.split("  ", 1)[-1] if brute[:6].strip().isdigit() else brute
+        s = ligne.strip()
+        if s.startswith("@"):  # décorateur entre le commentaire et la définition
+            continue
+        if not s or not s.startswith(_COMMENT_PREFIXES):
+            break
+        bloc.append(s)
+    # Les bandeaux de section (« # ---- », « # Tools ») ne disent rien de l'intention.
+    utiles = [ligne for ligne in bloc if any(c.isalnum() for c in ligne)]
+    if sum(len(ligne) for ligne in utiles) < 25:
+        return None
+    return "\n".join(reversed(utiles))
+
+
 def _q_get_edit_context(qfns, args):
     sym_name = args["name"]
     max_deps = args.get("max_deps", 10)
@@ -532,6 +577,9 @@ def _q_get_edit_context(qfns, args):
     if isinstance(location, dict) and ctx.get("source"):
         location = {c: v for c, v in location.items() if c != "source_preview"}
     ctx["location"] = location
+    pourquoi = _intention_au_dessus(qfns, location)
+    if pourquoi:
+        ctx["why"] = pourquoi
     try:
         dependencies = qfns["get_dependencies"](sym_name, max_results=max_deps)
         if is_class:
@@ -561,7 +609,11 @@ def _q_get_edit_context(qfns, args):
     except Exception:
         ctx["callers"] = []
 
-    # --- siblings: other symbols in the same file ---
+    # --- siblings: les voisins les plus proches dans le fichier ---
+    # Mesure du 15/10/2026 : la liste complète pesait jusqu'à la moitié de la
+    # réponse (7 161 caractères sur 14 272 pour une méthode de query_api.py),
+    # avec des lignes toutes à null (la clé est « lines », pas « line »).
+    # On garde les 12 plus proches de la définition et le total.
     loc_file = location.get("file") if isinstance(location, dict) else None
     if loc_file:
         siblings = []
@@ -569,19 +621,23 @@ def _q_get_edit_context(qfns, args):
             for fn in qfns["get_functions"](file_path=loc_file, max_results=0):
                 fn_name = fn.get("name") if isinstance(fn, dict) else None
                 if fn_name and fn_name != sym_name:
-                    siblings.append({"name": fn_name, "type": "function",
-                                     "line": fn.get("line")})
+                    siblings.append({"name": fn_name, "type": "function", "line": _ligne_de(fn)})
         except Exception:
             pass
         try:
             for cls in qfns["get_classes"](file_path=loc_file, max_results=0):
                 cls_name = cls.get("name") if isinstance(cls, dict) else None
                 if cls_name and cls_name != sym_name:
-                    siblings.append({"name": cls_name, "type": "class",
-                                     "line": cls.get("line")})
+                    siblings.append({"name": cls_name, "type": "class", "line": _ligne_de(cls)})
         except Exception:
             pass
-        ctx["siblings"] = siblings
+        ici = location.get("line") if isinstance(location.get("line"), int) else None
+        if ici is not None:
+            siblings.sort(key=lambda s: abs((s["line"] if s["line"] is not None else 10**9) - ici))
+        if len(siblings) > _SIBLINGS_MAX:
+            ctx["siblings_total"] = len(siblings)
+            siblings = siblings[:_SIBLINGS_MAX]
+        ctx["siblings"] = [{k: v for k, v in s.items() if v is not None} for s in siblings]
     else:
         ctx["siblings"] = []
 

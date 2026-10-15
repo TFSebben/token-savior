@@ -10,7 +10,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from collections.abc import Callable
 from functools import partial
 
@@ -889,7 +889,7 @@ class ProjectQueryEngine:
     # ------------------------------------------------------------------
 
     def get_project_summary(self) -> str:
-        """Compact project overview: counts + top packages only."""
+        """Compact project overview: counts, top packages, hubs and subsystems."""
         index = self.index
         parts = [
             f"Project: {index.root_path}",
@@ -954,7 +954,48 @@ class ProjectQueryEngine:
         if func_count:
             parts.append(f"Top-level functions: {func_count} total")
 
+        parts.extend(self._architecture_lines())
         return "\n".join(parts)
+
+    def _architecture_lines(self, n_hubs: int = 6, n_subsystems: int = 5) -> list[str]:
+        """Carte d'architecture en deux lignes : les symboles dont tout dépend, et les sous-systèmes.
+
+        Reprise de graphify (« god nodes », communautés), mais tirée du graphe que
+        l'index tient déjà : aucun appel au modèle, et deux lignes au lieu d'un
+        rapport, pour qu'un agent sache où regarder avant d'explorer.
+        """
+        index = self.index
+        rdg = index.reverse_dependency_graph or {}
+        if not rdg:
+            return []
+        lines: list[str] = []
+        hubs = sorted(rdg.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:n_hubs]
+        hubs = [(name, len(users)) for name, users in hubs if len(users) >= 3]
+        if hubs:
+            lines.append("Hubs (most depended-on): " + ", ".join(f"{name} ({n})" for name, n in hubs))
+        try:
+            communities = self._get_communities()
+        except Exception:
+            communities = {}
+        if communities:
+            groups: dict[str, list[str]] = defaultdict(list)
+            for sym, cid in communities.items():
+                groups[cid].append(sym)
+            table = index.symbol_table or {}
+            items = []
+            for cid, members in sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:n_subsystems]:
+                if len(members) < 5:
+                    continue
+                chemins = [table[m] for m in members if m in table]
+                # Les tests suivent le code qu'ils testent : on nomme le sous-système
+                # par son code de production quand il en a.
+                prod = [c for c in chemins if "test" not in c.lower()] or chemins
+                dirs = Counter(c.rsplit("/", 1)[0] if "/" in c else "." for c in prod)
+                where = f" in {dirs.most_common(1)[0][0]}/" if dirs else ""
+                items.append(f"{cid} ({len(members)}{where})")
+            if items:
+                lines.append("Subsystems (graph communities, named by their hub): " + "; ".join(items))
+        return lines
 
     def list_files(self, pattern: str | None = None, max_results: int = 0) -> list[str]:
         """List indexed files, optional glob filter (using fnmatch)."""

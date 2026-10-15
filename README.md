@@ -307,7 +307,7 @@ out in #45.
 | RTK (repo currently unreachable) | PostToolUse Bash output compression | Same layer, same PostToolUse limit: neither shrinks the current turn | Pick one. `TS_BASH_COMPACT=0` to defer to RTK |
 | [serena](https://github.com/oraios/serena) | Symbol-graph navigation | Direct, with `find_symbol` / `get_dependents` | Run TS as `compact-only` if serena is your navigator |
 | codebase-memory | Persistent code graph | With the memory engine | `TS_MEMORY_DISABLE=1` |
-| Ponytail, Caveman | Output-side compression (code and prose) | Partial, output side only | Complementary, no knob needed |
+| [Ponytail](https://github.com/DietrichGebert/ponytail), Caveman | Output-side compression (code and prose) | Partial: Token Savior ships an opt-in Ponytail-style discipline (`TS_DISCIPLINE=1`) wired to its tools | Complementary, no knob needed |
 
 The layers Token Savior owns that these do not: the PreToolUse Bash **rewriter**
 (it shrinks the command before it runs, not the output after), structural
@@ -443,6 +443,8 @@ values shown as *bool* accept `1`/`true`/`yes` (and `on` where noted).
 | `TS_STICKY_ACTIVE` | off (*bool*, `on` ok) | Freeze the active project: explicit `project=` hints and absolute path arguments still route each call, but no call repoints the shared default. For parallel agents in sibling worktrees |
 | `TOKEN_SAVIOR_PROFILE` | `full` | Tool profile. `optimized` — the value the quickstart config and `ts init` recommend — ships the Pareto manifest, implies thin schemas, and omits the capture tools from the manifest |
 | `TS_THIN_SCHEMAS=1` | off (on in `optimized`) | Strip verbose tool schemas from the manifest |
+| `TS_DISCIPLINE` | off (*bool*) | Session instructions in the style of Ponytail: smallest complete change scoped by `get_edit_context`, reuse found by `search_codebase`, one closing line on what was skipped. Off by default: on tsbench they cost 3-4 % more per session with no measured gain |
+| `TS_PROMPTS` | on (*bool*) | The `review` / `audit` / `lean` MCP prompts (slash commands in Claude Code). Free until called. `0` removes them |
 | `TS_AUTO_HOT_K` | `8` | Hot-tool count exposed by the telemetry-driven `auto` profile (13 tools in all) |
 | `TS_LEVEL_BANDIT` | off | Let a Thompson-sampling bandit pick the detail level of `get_function_source` / `get_class_source` when no `level` is given. Off by default: it drifted to summaries in place of source |
 | `TS_EXECUTE_MAX_CHARS` | `60000` | Ceiling on a `ts_execute` result; past it the returned value is cut and the cut is reported |

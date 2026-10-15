@@ -39,7 +39,12 @@ def get_server():
     global _server_singleton
     if _server_singleton is None:
         from mcp.server import Server  # lazy : ~1.24s SDK MCP load
-        _server_singleton = Server("token-savior-recall")
+
+        from token_savior.server_handlers import discipline
+        try:
+            _server_singleton = Server("token-savior-recall", instructions=discipline.instructions())
+        except TypeError:  # SDK trop ancien pour les instructions de serveur
+            _server_singleton = Server("token-savior-recall")
     return _server_singleton
 
 

@@ -1,5 +1,49 @@
 # Changelog
 
+## v4.24.0 — Lighter edit context, architecture map, review prompts (2026-10-15)
+
+Ideas from two neighbouring tools, rebuilt on Token Savior's own index:
+[Ponytail](https://github.com/DietrichGebert/ponytail) (write the smallest
+complete change) and [graphify](https://github.com/Graphify-Labs/graphify)
+(rationale comments and graph communities as first-class context).
+
+- **`get_edit_context` is 29 % lighter.** Measured on 40 random symbols of
+  this repository: 209 644 -> 148 190 characters. The sibling list sent every
+  function of the file (up to half of the response: 7 161 of 14 272 characters
+  for a method of `query_api.py`) and its line numbers were all `null`, because
+  the field is `lines`, not `line`. It now keeps the 12 nearest siblings, with
+  their real line, and `siblings_total` when it cut.
+- **`why` in `get_edit_context`.** The comment block glued above a definition
+  (Python `#`, JSDoc `/** */`, `//`) is returned as `why`: the intent the
+  source alone does not state, such as a counter-intuitive rule nobody should
+  "fix". Section banners are ignored; capped at 8 lines.
+- **Architecture map in `get_project_summary`.** Two lines, from the graph the
+  index already holds and with no model call: the most depended-on symbols
+  (hubs) and the largest graph communities, named by their hub and by their
+  production directory. About 400 more characters, once per project.
+- **Three MCP prompts**: `review` (the change, including breakage outside the
+  diff through `get_change_impact` and `detect_breaking_changes`), `audit` (the
+  whole project, ranked must / should / nice to have) and `lean` (a task as the
+  smallest complete change). Claude Code lists them as slash commands. Free
+  until called; `TS_PROMPTS=0` removes them.
+- **Opt-in session instructions** (`TS_DISCIPLINE=1`, 977 characters): the
+  smallest complete change scoped by `get_edit_context`, a reuse ladder that
+  checks the codebase first (`search_codebase` with `semantic=true`), deletion
+  before addition, never cutting validation or security, one closing line on
+  what was skipped. Off by default because the benchmark below found a cost
+  and no gain.
+- **Benchmark, old vs new server** (tsbench, Sonnet, `auto` profile, real
+  repository): 28/28 sessions succeeded in both arms. With the instructions on,
+  cost per session was +3 % on editing (4 comparable sessions) and +4 % on
+  reading (7), the price of ~100 more cached tokens per session; code written
+  in editing fell 9 %, within noise. The first session of each arm was left
+  out: the arm that ran first paid the prompt-cache warm-up alone (11 851
+  cache-write tokens against ~2 200), which had produced a fake -18 %. These
+  tasks take 2 to 4 turns and barely call `get_edit_context`, so they cannot
+  show its 29 % reduction, measured directly instead.
+- Both SDK generations: tested with MCP 1.27 and 2.3 through a real stdio
+  handshake. Options a SDK does not know are not passed.
+
 ## v4.23.2 — The launch directory is the active project (2026-10-08)
 
 - **Fix: a session could edit another project.** Started in a project that was
